@@ -11,7 +11,7 @@ import (
 	"net/url"
 	"time"
 
-	"bolson.org/~/src/login/crypto"
+	"bolson.org/~/src/login/login/crypto"
 	oauth "golang.org/x/oauth2"
 )
 

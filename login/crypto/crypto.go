@@ -50,13 +50,13 @@ func getkey() []byte {
 }
 
 type LoginCookieStruct struct {
-	Time int64  `cbor:"t"`
-	Guid uint64 `cbor:"u"`
+	Time int64 `cbor:"t"`
+	Guid int64 `cbor:"u"`
 }
 
 const randomPadLength = 8
 
-func MakeLoginCookie(uid uint64) (string, error) {
+func MakeLoginCookie(uid int64) (string, error) {
 	var err error
 
 	rpad := make([]byte, randomPadLength)
@@ -146,7 +146,7 @@ func parseUserCookie(ucookie string) (*LoginCookieStruct, error) {
 	return &cs, nil
 }
 
-func ParseLogin(ucookie string) (uint64, error) {
+func ParseLogin(ucookie string) (int64, error) {
 	cs, err := parseUserCookie(ucookie)
 	if err != nil {
 		log.Printf("failure in parseUserCookie %s", err)

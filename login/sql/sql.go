@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"reflect"
 
 	cbor "github.com/brianolson/cbor_go"
 )
@@ -24,9 +25,12 @@ import (
 // add/del social login to user
 // set metadata for social
 type UserDB interface {
+	// Setup will create or mirgate tables
+	Setup() error
+
 	PutNewUser(nu *User) (*User, error)
 
-	GetUser(guid uint64) (*User, error)
+	GetUser(guid int64) (*User, error)
 	GetLocalUser(username string) (*User, error)
 	GetSocialUser(service, id string) (*User, error)
 
@@ -37,7 +41,7 @@ type UserDB interface {
 	// Set local login for a social-login user
 	SetLogin(user *User, username, password string) error
 
-	AddEmail(user *User, email string) error
+	AddEmail(user *User, email EmailRecord) error
 	DelEmail(user *User, email string) error
 
 	Feedback(user *User, now int64, text string) error
@@ -114,59 +118,66 @@ func readUserFromSelect(rows *sql.Rows) (*User, error) {
 	return u, err
 }
 
-var postgresCreateTables []string
-
-func init() {
-	postgresCreateTables = []string{
-		`CREATE TABLE IF NOT EXISTS guser (
+// sql commands for postgres.
+// postgres is the baseline, others (sqlite3) deviate from it
+const (
+	createGuser = `CREATE TABLE IF NOT EXISTS guser (
 id bigserial PRIMARY KEY,
 username varchar(100), -- may be NULL
 password varchar(100), -- may be NULL
 prefs bytea -- cbor encoded UserSqlPrefs{}
-);
-CREATE UNIQUE INDEX IF NOT EXISTS guser_name ON guser ( username )`,
-		`CREATE TABLE IF NOT EXISTS user_social (
+)`
+	createGuserNameIndex = `CREATE UNIQUE INDEX IF NOT EXISTS guser_name ON guser ( username )`
+
+	createUserSocial = `CREATE TABLE IF NOT EXISTS user_social (
 id bigint, -- foreign key guser.id
 socialkey bytea, -- service\0id
 socialdata bytea, -- cbor, unpack into specific struct per service in app
 PRIMARY KEY (id, socialkey)
-);
-CREATE UNIQUE INDEX IF NOT EXISTS social_key ON user_social ( socialkey )`,
-		`CREATE TABLE IF NOT EXISTS user_email (
+)`
+	createUserSocialKeyIndex = `CREATE UNIQUE INDEX IF NOT EXISTS social_key ON user_social ( socialkey )`
+
+	createUserEmail = `CREATE TABLE IF NOT EXISTS user_email (
 id bigint, -- foreign key guser.id
 email varchar(100),
 data bytea, -- cbor {'valid':bool, ...}
 PRIMARY KEY (id, email)
-);
-CREATE INDEX IF NOT EXISTS user_email_email ON user_email ( email )`,
-	}
-}
+)`
+	creaetUserEmailIndex = `CREATE INDEX IF NOT EXISTS user_email_email ON user_email ( email )`
+)
 
-func CreateTables(db *sql.DB) error {
+func dbTxCmdList(db *sql.DB, cmds []string) error {
 	tx, err := db.Begin()
 	if err != nil {
 		return err
 	}
-	for _, cmd := range postgresCreateTables {
+	defer tx.Rollback() // nop if committed
+	for _, cmd := range cmds {
 		_, err := tx.Exec(cmd)
 		if err != nil {
-			log.Printf("sql setup failed: %v", cmd)
-			se := tx.Rollback()
-			if se != nil {
-				log.Printf("tx rollback failed too: %s", se)
-			}
-			return err
+			return fmt.Errorf("sql failed %#v, %v", cmd, err)
 		}
 	}
 	err = tx.Commit()
 	if err != nil {
-		log.Printf("sql setup transaction failed: %s", err)
-		return err
+		return fmt.Errorf("commit of %d commands failed, %v", len(cmds), err)
 	}
 	return nil
 }
 
-func GetUser(db *sql.DB, guid uint64) (*User, error) {
+func postgresCreateTables(db *sql.DB) error {
+	cmds := []string{
+		createGuser,
+		createGuserNameIndex,
+		createUserSocial,
+		createUserSocialKeyIndex,
+		createUserEmail,
+		creaetUserEmailIndex,
+	}
+	return dbTxCmdList(db, cmds)
+}
+
+func postgresGetUser(db *sql.DB, guid int64) (*User, error) {
 	// TODO: user records are probably highly cacheable, and frequently read
 	cmd := `SELECT g.username, g.password, g.prefs, e.email, g.id, s.socialkey, s.socialdata FROM guser g LEFT JOIN user_email e ON g.id = e.id LEFT JOIN user_social s ON g.id = s.id WHERE g.id = $1`
 	rows, err := db.Query(cmd, guid)
@@ -177,7 +188,7 @@ func GetUser(db *sql.DB, guid uint64) (*User, error) {
 	return readUserFromSelect(rows)
 }
 
-func GetLocalUser(db *sql.DB, uid string) (*User, error) {
+func postgresGetLocalUser(db *sql.DB, uid string) (*User, error) {
 	cmd := `SELECT g.username, g.password, g.prefs, e.email, g.id, s.socialkey, s.socialdata FROM guser g LEFT JOIN user_email e ON g.id = e.id LEFT JOIN user_social s ON g.id = s.id WHERE g.username = $1`
 	rows, err := db.Query(cmd, uid)
 	if err != nil {
@@ -247,9 +258,10 @@ func unpackPrefsBlob(user *User, blob []byte) error {
 	return err
 }
 
-func PutNewUser(db *sql.DB, nu *User) (*User, error) {
+func commonPutNewUser(xd innerDriver, nu *User) (*User, error) {
+	db := xd.DB()
 	if len(nu.Username) > 0 {
-		ou, _ := GetLocalUser(db, nu.Username)
+		ou, _ := xd.GetLocalUser(nu.Username)
 		if ou != nil {
 			return nil, fmt.Errorf("username \"%s\" already taken", nu.Username)
 		}
@@ -290,30 +302,36 @@ func PutNewUser(db *sql.DB, nu *User) (*User, error) {
 	}
 	tx, err := db.Begin()
 	if err != nil {
-		tx.Rollback()
 		return nil, err
 	}
-	idrows, err := tx.Query(`INSERT INTO guser (username, password, prefs) VALUES ($1, $2, $3) RETURNING id`, nu.Username, nu.Password, pblob)
+	defer tx.Rollback() // nop if committed
+	newGuid, err := xd.PutGuser(tx, nu, pblob)
 	if err != nil {
-		log.Printf("error inserting new user: %s", err)
-		tx.Rollback()
 		return nil, err
 	}
-	var newGuid uint64 = 0
-	if idrows.Next() {
-		err = idrows.Scan(&newGuid)
+	nu.Guid = newGuid
+	/*
+		idrows, err := tx.Query(`INSERT INTO guser (username, password, prefs) VALUES ($1, $2, $3) RETURNING id`, nu.Username, nu.Password, pblob)
 		if err != nil {
-			log.Printf("could not get new guid: %s", err)
+			log.Printf("error inserting new user: %s", err)
 			tx.Rollback()
 			return nil, err
 		}
-		nu.Guid = newGuid
-	}
-	// This call to Next which doesn't do anything but return
-	// false is necssary due to lib/pq driver oddities!
-	for idrows.Next() {
-		log.Print("bogus extra rows of return from INSERT!")
-	}
+		var newGuid uint64 = 0
+		if idrows.Next() {
+			err = idrows.Scan(&newGuid)
+			if err != nil {
+				log.Printf("could not get new guid: %s", err)
+				tx.Rollback()
+				return nil, err
+			}
+			nu.Guid = newGuid
+		}
+		// This call to Next which doesn't do anything but return
+		// false is necssary due to lib/pq driver oddities!
+		for idrows.Next() {
+			log.Print("bogus extra rows of return from INSERT!")
+		}*/
 
 	if (nu.Social != nil) && (len(nu.Social) > 0) {
 		cmd := `INSERT INTO user_social (id, socialkey, socialdata) VALUES ($1, $2, $3)`
@@ -397,57 +415,183 @@ func Feedback(db *sql.DB, user *User, now int64, text string) error {
 	return err
 }
 
-type SqlUserDB struct {
+func dbIsSqlite(db *sql.DB) bool {
+	driver := db.Driver()
+	t := reflect.TypeOf(driver)
+	return t.Kind() == reflect.Ptr && t.Elem().Name() == "SQLiteDriver"
+}
+
+func NewSqlUserDB(db *sql.DB) UserDB {
+	if dbIsSqlite(db) {
+		return &sqlite3UserDB{db}
+	}
+	return &postgresUserDB{db}
+}
+
+type innerDriver interface {
+	PutGuser(tx *sql.Tx, nu *User, pblob []byte) (int64, error)
+	GetLocalUser(uid string) (*User, error)
+	DB() *sql.DB
+}
+
+type postgresUserDB struct {
 	db *sql.DB
 }
 
-func NewSqlUserDB(db *sql.DB) *SqlUserDB {
-	return &SqlUserDB{db}
+// implement innerDriver
+func (sdb *postgresUserDB) PutGuser(tx *sql.Tx, nu *User, pblob []byte) (int64, error) {
+	idrows, err := tx.Query(`INSERT INTO guser (username, password, prefs) VALUES ($1, $2, $3) RETURNING id`, nu.Username, nu.Password, pblob)
+	if err != nil {
+		err = fmt.Errorf("error inserting new user: %s", err)
+		return 0, err
+	}
+	var newGuid int64 = 0
+	if idrows.Next() {
+		err = idrows.Scan(&newGuid)
+		if err != nil {
+			err = fmt.Errorf("could not get new guid: %s", err)
+			return 0, err
+		}
+	}
+	// This call to Next which doesn't do anything but return
+	// false is necssary due to lib/pq driver oddities!
+	for idrows.Next() {
+		log.Print("bogus extra rows of return from INSERT!")
+	}
+	return newGuid, err
 }
 
-func (sdb *SqlUserDB) PutNewUser(nu *User) (*User, error) {
-	return PutNewUser(sdb.db, nu)
+// implement innerDriver
+func (sdb *postgresUserDB) DB() *sql.DB {
+	return sdb.db
 }
 
-func (sdb *SqlUserDB) GetUser(guid uint64) (*User, error) {
-	return GetUser(sdb.db, guid)
+func (sdb *postgresUserDB) PutNewUser(nu *User) (*User, error) {
+	return commonPutNewUser(sdb, nu)
 }
-func (sdb *SqlUserDB) GetLocalUser(uid string) (*User, error) {
-	return GetLocalUser(sdb.db, uid)
+
+func (sdb *postgresUserDB) GetUser(guid int64) (*User, error) {
+	return postgresGetUser(sdb.db, guid)
 }
-func (sdb *SqlUserDB) GetSocialUser(service, id string) (*User, error) {
+func (sdb *postgresUserDB) GetLocalUser(uid string) (*User, error) {
+	return postgresGetLocalUser(sdb.db, uid)
+}
+func (sdb *postgresUserDB) GetSocialUser(service, id string) (*User, error) {
 	return GetSocialUser(sdb.db, service, id)
 }
 
-func (sdb *SqlUserDB) SetUserPrefs(xuser *User) error {
+func (sdb *postgresUserDB) SetUserPrefs(xuser *User) error {
 	return SetUserPrefs(sdb.db, xuser)
 }
-func (sdb *SqlUserDB) SetUserPassword(xuser *User) error {
+func (sdb *postgresUserDB) SetUserPassword(xuser *User) error {
 	return SetUserPassword(sdb.db, xuser)
 }
 
 // Set local login for a social-login user
-func (sdb *SqlUserDB) SetLogin(user *User, username, password string) error {
+func (sdb *postgresUserDB) SetLogin(user *User, username, password string) error {
 	return SetLogin(sdb.db, user, username, password)
 }
 
-func (sdb *SqlUserDB) AddEmail(user *User, email EmailRecord) error {
+func (sdb *postgresUserDB) AddEmail(user *User, email EmailRecord) error {
 	return AddEmail(sdb.db, user, email)
 }
 
-func (sdb *SqlUserDB) DelEmail(user *User, email string) error {
+func (sdb *postgresUserDB) DelEmail(user *User, email string) error {
 	return DelEmail(sdb.db, user, email)
 }
 
-func (sdb *SqlUserDB) Feedback(user *User, now int64, text string) error {
+func (sdb *postgresUserDB) Feedback(user *User, now int64, text string) error {
 	return Feedback(sdb.db, user, now, text)
 }
 
-func (sdb *SqlUserDB) CreateTables() error {
-	return CreateTables(sdb.db)
+func (sdb *postgresUserDB) Setup() error {
+	return postgresCreateTables(sdb.db)
 }
 
-func (sdb *SqlUserDB) Close() {
+func (sdb *postgresUserDB) Close() {
+	sdb.db.Close()
+	sdb.db = nil
+}
+
+type sqlite3UserDB struct {
+	db *sql.DB
+}
+
+// implement innerDriver
+func (sdb *sqlite3UserDB) PutGuser(tx *sql.Tx, nu *User, pblob []byte) (int64, error) {
+	result, err := tx.Exec(`INSERT INTO guser (username, password, prefs) VALUES ($1, $2, $3)`, nu.Username, nu.Password, pblob)
+	if err != nil {
+		err = fmt.Errorf("error inserting new user: %s", err)
+		return 0, err
+	}
+	newGuid, err := result.LastInsertId()
+	if err != nil {
+		err = fmt.Errorf("could not get user insert rowid, %v", err)
+	}
+	return newGuid, err
+}
+
+// implement innerDriver
+func (sdb *sqlite3UserDB) DB() *sql.DB {
+	return sdb.db
+}
+
+func (sdb *sqlite3UserDB) PutNewUser(nu *User) (*User, error) {
+	return commonPutNewUser(sdb, nu)
+}
+
+func (sdb *sqlite3UserDB) GetUser(guid int64) (*User, error) {
+	cmd := `SELECT g.username, g.password, g.prefs, e.email, g.ROWID, s.socialkey, s.socialdata FROM guser g LEFT JOIN user_email e ON g.ROWID = e.id LEFT JOIN user_social s ON g.ROWID = s.id WHERE g.ROWID = $1`
+	rows, err := sdb.db.Query(cmd, guid)
+	if err != nil {
+		log.Printf("sql err on %#v: %s", cmd, err)
+		return nil, err
+	}
+	return readUserFromSelect(rows)
+}
+
+func (sdb *sqlite3UserDB) GetLocalUser(uid string) (*User, error) {
+	cmd := `SELECT g.username, g.password, g.prefs, e.email, g.ROWID, s.socialkey, s.socialdata FROM guser g LEFT JOIN user_email e ON g.ROWID = e.id LEFT JOIN user_social s ON g.ROWID = s.id WHERE g.username = $1`
+	rows, err := sdb.db.Query(cmd, uid)
+	if err != nil {
+		log.Printf("sql err on %#v: %s", cmd, err)
+		return nil, err
+	}
+	return readUserFromSelect(rows)
+}
+func (sdb *sqlite3UserDB) GetSocialUser(service, id string) (*User, error) {
+	return GetSocialUser(sdb.db, service, id)
+}
+
+func (sdb *sqlite3UserDB) SetUserPrefs(xuser *User) error {
+	return SetUserPrefs(sdb.db, xuser)
+}
+func (sdb *sqlite3UserDB) SetUserPassword(xuser *User) error {
+	return SetUserPassword(sdb.db, xuser)
+}
+
+// Set local login for a social-login user
+func (sdb *sqlite3UserDB) SetLogin(user *User, username, password string) error {
+	return SetLogin(sdb.db, user, username, password)
+}
+
+func (sdb *sqlite3UserDB) AddEmail(user *User, email EmailRecord) error {
+	return AddEmail(sdb.db, user, email)
+}
+
+func (sdb *sqlite3UserDB) DelEmail(user *User, email string) error {
+	return DelEmail(sdb.db, user, email)
+}
+
+func (sdb *sqlite3UserDB) Feedback(user *User, now int64, text string) error {
+	return Feedback(sdb.db, user, now, text)
+}
+
+func (sdb *sqlite3UserDB) Setup() error {
+	return sqlite3CreateTables(sdb.db)
+}
+
+func (sdb *sqlite3UserDB) Close() {
 	sdb.db.Close()
 	sdb.db = nil
 }

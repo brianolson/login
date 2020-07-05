@@ -12,7 +12,7 @@ var BadUserError = errors.New("bad user name & password")
 
 type User struct {
 	// primary key
-	Guid uint64
+	Guid int64
 
 	// goog, fb, twit, etc.
 	Social []UserSocial

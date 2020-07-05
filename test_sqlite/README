@@ -1,0 +1,1 @@
+This package has a separate go.mod so that the main package doesn't have a hard dependency on sqlite3 or any specific sql database

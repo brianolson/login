@@ -3,20 +3,14 @@ package main
 import (
 	"database/sql"
 	"fmt"
-	"log"
-	"os"
 	"reflect"
 
 	_ "github.com/mattn/go-sqlite3"
+
+	tu "bolson.org/~/src/login/login/sql/testutil"
 )
 
-func maybefail(err error, format string, args ...interface{}) {
-	if err == nil {
-		return
-	}
-	log.Printf(format, args...)
-	os.Exit(1)
-}
+var maybefail = tu.Maybefail
 
 func main() {
 	db, err := sql.Open("sqlite3", ":memory:")

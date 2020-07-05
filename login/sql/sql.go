@@ -71,8 +71,11 @@ func baInBas(they [][]byte, it []byte) bool {
 
 // Used in GetUser, GetLocalUser, GetSocialUser which MUST have the
 // same result out of SELECT.
+// Processes SELECT username, password, password, prefs, email, emailmeta, id, socialkey, socialdata
+// LEFT JOIN of email and social tables may cause repetition!
 func readUserFromSelect(rows *sql.Rows) (*User, error) {
 	var email []byte
+	var emailmetablob []byte
 	var err error
 	var prefs []byte = nil
 	u := &User{}
@@ -86,14 +89,19 @@ func readUserFromSelect(rows *sql.Rows) (*User, error) {
 	for rows.Next() {
 		any = true
 		email = nil
+		emailmetablob = nil
 		socialkey = nil
 		socialdata = nil
-		err = rows.Scan(&u.Username, &u.Password, &prefs, &email, &u.Guid, &socialkey, &socialdata)
+		err = rows.Scan(&u.Username, &u.Password, &prefs, &email, &emailmetablob, &u.Guid, &socialkey, &socialdata)
 		if err != nil {
 			break
 		}
 		if (email != nil) && (len(email) > 0) && !u.HasEmail(string(email)) {
-			u.Email = append(u.Email, NewEmail(string(email)))
+			ne := EmailRecord{Email: string(email)}
+			if len(emailmetablob) > 0 {
+				cbor.Loads(emailmetablob, &ne.EmailMetadata)
+			}
+			u.Email = append(u.Email, ne)
 		}
 		if (socialkey != nil) && (len(socialkey) > 0) && !baInBas(sokeys, socialkey) {
 			sokeys = append(sokeys, socialkey)
@@ -179,7 +187,7 @@ func postgresCreateTables(db *sql.DB) error {
 
 func postgresGetUser(db *sql.DB, guid int64) (*User, error) {
 	// TODO: user records are probably highly cacheable, and frequently read
-	cmd := `SELECT g.username, g.password, g.prefs, e.email, g.id, s.socialkey, s.socialdata FROM guser g LEFT JOIN user_email e ON g.id = e.id LEFT JOIN user_social s ON g.id = s.id WHERE g.id = $1`
+	cmd := `SELECT g.username, g.password, g.prefs, e.email, e.data, g.id, s.socialkey, s.socialdata FROM guser g LEFT JOIN user_email e ON g.id = e.id LEFT JOIN user_social s ON g.id = s.id WHERE g.id = $1`
 	rows, err := db.Query(cmd, guid)
 	if err != nil {
 		log.Printf("sql err on %#v: %s", cmd, err)
@@ -189,7 +197,7 @@ func postgresGetUser(db *sql.DB, guid int64) (*User, error) {
 }
 
 func postgresGetLocalUser(db *sql.DB, uid string) (*User, error) {
-	cmd := `SELECT g.username, g.password, g.prefs, e.email, g.id, s.socialkey, s.socialdata FROM guser g LEFT JOIN user_email e ON g.id = e.id LEFT JOIN user_social s ON g.id = s.id WHERE g.username = $1`
+	cmd := `SELECT g.username, g.password, g.prefs, e.email, e.data, g.id, s.socialkey, s.socialdata FROM guser g LEFT JOIN user_email e ON g.id = e.id LEFT JOIN user_social s ON g.id = s.id WHERE g.username = $1`
 	rows, err := db.Query(cmd, uid)
 	if err != nil {
 		log.Printf("sql err on %#v: %s", cmd, err)
@@ -198,9 +206,9 @@ func postgresGetLocalUser(db *sql.DB, uid string) (*User, error) {
 	return readUserFromSelect(rows)
 }
 
-func GetSocialUser(db *sql.DB, service, id string) (*User, error) {
+func postgresGetSocialUser(db *sql.DB, service, id string) (*User, error) {
 	socialkey := SocialKey(service, id)
-	cmd := `SELECT g.username, g.password, g.prefs, e.email, g.id, s.socialkey, s.socialdata FROM user_social s LEFT JOIN guser g ON s.id = g.id LEFT JOIN user_email e ON g.id = e.id WHERE s.socialkey = $1`
+	cmd := `SELECT g.username, g.password, g.prefs, e.email, e.data, g.id, s.socialkey, s.socialdata FROM user_social s LEFT JOIN guser g ON s.id = g.id LEFT JOIN user_email e ON g.id = e.id WHERE s.socialkey = $1`
 	rows, err := db.Query(cmd, socialkey)
 	if err != nil {
 		log.Printf("sql err on %#v: %s", cmd, err)
@@ -269,7 +277,7 @@ func commonPutNewUser(xd innerDriver, nu *User) (*User, error) {
 	}
 	if (nu.Social != nil) && (len(nu.Social) > 0) {
 		for _, si := range nu.Social {
-			ou, _ := GetSocialUser(db, si.Service, si.Id)
+			ou, _ := xd.GetSocialUser(si.Service, si.Id)
 			if ou != nil {
 				// database race? Should have just tried
 				// to log in, but maybe found it not
@@ -283,7 +291,7 @@ func commonPutNewUser(xd innerDriver, nu *User) (*User, error) {
 	}
 	if (nu.Email != nil) && (len(nu.Email) > 0) {
 		for _, em := range nu.Email {
-			emrows, err := db.Query(`SELECT id, data FROM user_email WHERE email = $1`, em)
+			emrows, err := db.Query(`SELECT id, data FROM user_email WHERE email = $1`, em.Email)
 			if err != nil {
 				log.Printf("error getting emails in newuser: %s", err)
 				return nil, err
@@ -310,28 +318,6 @@ func commonPutNewUser(xd innerDriver, nu *User) (*User, error) {
 		return nil, err
 	}
 	nu.Guid = newGuid
-	/*
-		idrows, err := tx.Query(`INSERT INTO guser (username, password, prefs) VALUES ($1, $2, $3) RETURNING id`, nu.Username, nu.Password, pblob)
-		if err != nil {
-			log.Printf("error inserting new user: %s", err)
-			tx.Rollback()
-			return nil, err
-		}
-		var newGuid uint64 = 0
-		if idrows.Next() {
-			err = idrows.Scan(&newGuid)
-			if err != nil {
-				log.Printf("could not get new guid: %s", err)
-				tx.Rollback()
-				return nil, err
-			}
-			nu.Guid = newGuid
-		}
-		// This call to Next which doesn't do anything but return
-		// false is necssary due to lib/pq driver oddities!
-		for idrows.Next() {
-			log.Print("bogus extra rows of return from INSERT!")
-		}*/
 
 	if (nu.Social != nil) && (len(nu.Social) > 0) {
 		cmd := `INSERT INTO user_social (id, socialkey, socialdata) VALUES ($1, $2, $3)`
@@ -341,13 +327,12 @@ func commonPutNewUser(xd innerDriver, nu *User) (*User, error) {
 			_, err = tx.Exec(cmd, nu.Guid, skey, nil)
 			if err != nil {
 				log.Printf("error putting user social: %s", err)
-				tx.Rollback()
 				return nil, err
 			}
 		}
 	}
 	if (nu.Email != nil) && (len(nu.Email) > 0) {
-		cmd := `INSERT INTO user_email (id, email) VALUES ($1, $2)`
+		cmd := `INSERT INTO user_email (id, email, data) VALUES ($1, $2, $3)`
 		stmt, err := tx.Prepare(cmd)
 		if err != nil {
 			log.Printf("error preparing user_email statement %#v: %s", cmd, err)
@@ -356,10 +341,14 @@ func commonPutNewUser(xd innerDriver, nu *User) (*User, error) {
 		}
 
 		for _, em := range nu.Email {
-			_, err = stmt.Exec(nu.Guid, em)
+			edblob, err := cbor.Dumps(em.EmailMetadata)
 			if err != nil {
-				log.Printf("error putting user email: %s", err)
-				tx.Rollback()
+				err = fmt.Errorf("could not cbor encode email metadata for %s, %v", em.Email, err)
+				return nil, err
+			}
+			_, err = stmt.Exec(nu.Guid, em.Email, edblob)
+			if err != nil {
+				err = fmt.Errorf("error putting user email: %s", err)
 				return nil, err
 			}
 		}
@@ -396,12 +385,12 @@ func SetLogin(db *sql.DB, user *User, username, password string) error {
 }
 
 func AddEmail(db *sql.DB, user *User, email EmailRecord) error {
-	metablob, err := cbor.Dumps(email)
+	metablob, err := cbor.Dumps(email.EmailMetadata)
 	if err != nil {
 		log.Print("failed to encode email metadata cbor ", err)
 		metablob = make([]byte, 0)
 	}
-	_, err = db.Exec(`INSERT INTO user_email (id, email, data) VALUES ($1, $2, $3)`, user.Guid, email, metablob)
+	_, err = db.Exec(`INSERT INTO user_email (id, email, data) VALUES ($1, $2, $3)`, user.Guid, email.Email, metablob)
 	return err
 }
 
@@ -431,6 +420,7 @@ func NewSqlUserDB(db *sql.DB) UserDB {
 type innerDriver interface {
 	PutGuser(tx *sql.Tx, nu *User, pblob []byte) (int64, error)
 	GetLocalUser(uid string) (*User, error)
+	GetSocialUser(service, id string) (*User, error)
 	DB() *sql.DB
 }
 
@@ -477,7 +467,7 @@ func (sdb *postgresUserDB) GetLocalUser(uid string) (*User, error) {
 	return postgresGetLocalUser(sdb.db, uid)
 }
 func (sdb *postgresUserDB) GetSocialUser(service, id string) (*User, error) {
-	return GetSocialUser(sdb.db, service, id)
+	return postgresGetSocialUser(sdb.db, service, id)
 }
 
 func (sdb *postgresUserDB) SetUserPrefs(xuser *User) error {
@@ -541,7 +531,7 @@ func (sdb *sqlite3UserDB) PutNewUser(nu *User) (*User, error) {
 }
 
 func (sdb *sqlite3UserDB) GetUser(guid int64) (*User, error) {
-	cmd := `SELECT g.username, g.password, g.prefs, e.email, g.ROWID, s.socialkey, s.socialdata FROM guser g LEFT JOIN user_email e ON g.ROWID = e.id LEFT JOIN user_social s ON g.ROWID = s.id WHERE g.ROWID = $1`
+	cmd := `SELECT g.username, g.password, g.prefs, e.email, e.data, g.ROWID, s.socialkey, s.socialdata FROM guser g LEFT JOIN user_email e ON g.ROWID = e.id LEFT JOIN user_social s ON g.ROWID = s.id WHERE g.ROWID = $1`
 	rows, err := sdb.db.Query(cmd, guid)
 	if err != nil {
 		log.Printf("sql err on %#v: %s", cmd, err)
@@ -551,7 +541,7 @@ func (sdb *sqlite3UserDB) GetUser(guid int64) (*User, error) {
 }
 
 func (sdb *sqlite3UserDB) GetLocalUser(uid string) (*User, error) {
-	cmd := `SELECT g.username, g.password, g.prefs, e.email, g.ROWID, s.socialkey, s.socialdata FROM guser g LEFT JOIN user_email e ON g.ROWID = e.id LEFT JOIN user_social s ON g.ROWID = s.id WHERE g.username = $1`
+	cmd := `SELECT g.username, g.password, g.prefs, e.email, e.data, g.ROWID, s.socialkey, s.socialdata FROM guser g LEFT JOIN user_email e ON g.ROWID = e.id LEFT JOIN user_social s ON g.ROWID = s.id WHERE g.username = $1`
 	rows, err := sdb.db.Query(cmd, uid)
 	if err != nil {
 		log.Printf("sql err on %#v: %s", cmd, err)
@@ -560,7 +550,14 @@ func (sdb *sqlite3UserDB) GetLocalUser(uid string) (*User, error) {
 	return readUserFromSelect(rows)
 }
 func (sdb *sqlite3UserDB) GetSocialUser(service, id string) (*User, error) {
-	return GetSocialUser(sdb.db, service, id)
+	socialkey := SocialKey(service, id)
+	cmd := `SELECT g.username, g.password, g.prefs, e.email, e.data, g.ROWID, s.socialkey, s.socialdata FROM user_social s LEFT JOIN guser g ON s.id = g.ROWID LEFT JOIN user_email e ON g.ROWID = e.id WHERE s.socialkey = $1`
+	rows, err := sdb.db.Query(cmd, socialkey)
+	if err != nil {
+		log.Printf("sql err on %#v: %s", cmd, err)
+		return nil, err
+	}
+	return readUserFromSelect(rows)
 }
 
 func (sdb *sqlite3UserDB) SetUserPrefs(xuser *User) error {

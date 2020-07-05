@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
-	"time"
 
 	cbor "github.com/brianolson/cbor_go"
 )
@@ -69,11 +68,11 @@ func baInBas(they [][]byte, it []byte) bool {
 // Used in GetUser, GetLocalUser, GetSocialUser which MUST have the
 // same result out of SELECT.
 func readUserFromSelect(rows *sql.Rows) (*User, error) {
-	var email *string
+	var email []byte
 	var err error
 	var prefs []byte = nil
 	u := &User{}
-	u.Email = make([]string, 0)
+	u.Email = make([]EmailRecord, 0)
 	u.Social = make([]UserSocial, 0)
 	any := false
 	var socialkey []byte = nil
@@ -89,8 +88,8 @@ func readUserFromSelect(rows *sql.Rows) (*User, error) {
 		if err != nil {
 			break
 		}
-		if (email != nil) && (len(*email) > 0) && !strInStrs(u.Email, *email) {
-			u.Email = append(u.Email, *email)
+		if (email != nil) && (len(email) > 0) && !u.HasEmail(string(email)) {
+			u.Email = append(u.Email, NewEmail(string(email)))
 		}
 		if (socialkey != nil) && (len(socialkey) > 0) && !baInBas(sokeys, socialkey) {
 			sokeys = append(sokeys, socialkey)
@@ -211,6 +210,7 @@ func ParseSocialKey(socialkey []byte) (service, id string) {
 	return string(socialkey[0:spos]), string(socialkey[spos+1:])
 }
 
+/*
 // CBOR encoded contents of guser table column (prefs bytea)
 type UserSqlPrefs struct {
 	// Enabled forms
@@ -223,20 +223,24 @@ type UserSqlPrefs struct {
 	// Sorted list of features special enabled for this user.
 	Features []int
 }
+*/
+
+type PrefsBlob struct {
+	DisplayName string                 `json:"dn,omitempty"`
+	Data        map[string]interface{} `json:"d,omitempty"`
+}
 
 func prefsBlob(user *User) ([]byte, error) {
-	return cbor.Dumps(UserSqlPrefs{user.Enabled, user.DisplayName, user.NextParam, user.Features})
+	return cbor.Dumps(PrefsBlob{user.DisplayName, user.Data})
 }
 
 func unpackPrefsBlob(user *User, blob []byte) error {
-	var uprefs UserSqlPrefs
+	var uprefs PrefsBlob
 	var err error
 	err = cbor.Loads(blob, &uprefs)
 	if err == nil {
-		user.Enabled = uprefs.Enabled
 		user.DisplayName = uprefs.DisplayName
-		user.NextParam = uprefs.NextParam
-		user.Features = uprefs.Features
+		user.Data = uprefs.Data
 	} else {
 		log.Print("bad prefs cbor", err)
 	}
@@ -244,10 +248,10 @@ func unpackPrefsBlob(user *User, blob []byte) error {
 }
 
 func PutNewUser(db *sql.DB, nu *User) (*User, error) {
-	if nu.Username != nil {
-		ou, _ := GetLocalUser(db, *nu.Username)
+	if len(nu.Username) > 0 {
+		ou, _ := GetLocalUser(db, nu.Username)
 		if ou != nil {
-			return nil, fmt.Errorf("username \"%s\" already taken", *nu.Username)
+			return nil, fmt.Errorf("username \"%s\" already taken", nu.Username)
 		}
 		// no collision, moving on
 	}
@@ -373,8 +377,8 @@ func SetLogin(db *sql.DB, user *User, username, password string) error {
 	return err
 }
 
-func AddEmail(db *sql.DB, user *User, email string) error {
-	metablob, err := cbor.Dumps(EmailMetadata{false, time.Now().Unix()})
+func AddEmail(db *sql.DB, user *User, email EmailRecord) error {
+	metablob, err := cbor.Dumps(email)
 	if err != nil {
 		log.Print("failed to encode email metadata cbor ", err)
 		metablob = make([]byte, 0)
@@ -427,7 +431,7 @@ func (sdb *SqlUserDB) SetLogin(user *User, username, password string) error {
 	return SetLogin(sdb.db, user, username, password)
 }
 
-func (sdb *SqlUserDB) AddEmail(user *User, email string) error {
+func (sdb *SqlUserDB) AddEmail(user *User, email EmailRecord) error {
 	return AddEmail(sdb.db, user, email)
 }
 

@@ -185,11 +185,11 @@ func (cb *OauthCallbackHandler) facebookGetMoreInfo(out http.ResponseWriter, req
 		xu.Social = make([]UserSocial, 1)
 		xu.Social[0] = tsoc
 		if len(info.Email) > 0 {
-			xu.Email = make([]string, 1)
-			xu.Email[0] = info.Email
+			xu.Email = make([]EmailRecord, 1)
+			xu.Email[0] = NewEmail(info.Email)
 		}
 		if len(info.Name) > 0 {
-			xu.DisplayName = &info.Name
+			xu.DisplayName = info.Name
 		}
 		xu, err = udb.PutNewUser(xu)
 	}

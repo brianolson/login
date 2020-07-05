@@ -3,7 +3,7 @@ package sql
 import (
 	"errors"
 	"fmt"
-	"sort"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -18,25 +18,18 @@ type User struct {
 	Social []UserSocial
 
 	// Local Username must be unique across local users
-	Username *string
+	Username string
 	Password []byte
 
 	// lost password recovery, notifications
-	// TODO: metadata: verified. verified time. last sent to. chattyness preferences.
-	Email []string
+	Email []EmailRecord
 
 	// What we show them when we talk to them. "Hi, ____"
 	// Need not be unique.
-	DisplayName *string
+	DisplayName string
 
-	// Enabled forms
-	Enabled []string
-
-	NextParam uint32
-	// other prefs? move misc prefs to a sub struct?
-
-	// Sorted list of features special enabled for this user.
-	Features []int
+	// Serialized by encoding/json or similar
+	Data map[string]interface{}
 }
 
 type UserSocial struct {
@@ -47,16 +40,27 @@ type UserSocial struct {
 
 type EmailMetadata struct {
 	Validated bool
-	Added     int64
+	Added     int64 // unix timestamp
+	Data      map[string]interface{}
+}
+
+type EmailRecord struct {
+	Email string
+	EmailMetadata
+}
+
+func NewEmail(email string) EmailRecord {
+	return EmailRecord{
+		Email: email,
+		EmailMetadata: EmailMetadata{
+			Validated: false,
+			Added:     time.Now().UTC().Unix(),
+		},
+	}
 }
 
 func (u *User) GoodPassword(qpw string) bool {
-	ok := bcrypt.CompareHashAndPassword(u.Password, []byte(qpw)) == nil
-	if ok {
-		return ok
-	}
-	// TODO: disable old password equality check
-	return string(u.Password) == qpw
+	return bcrypt.CompareHashAndPassword(u.Password, []byte(qpw)) == nil
 }
 
 func (u *User) SetPassword(npw string) error {
@@ -69,59 +73,28 @@ func (u *User) SetPassword(npw string) error {
 }
 
 func (u *User) BestDisplayName() string {
-	if u.DisplayName != nil {
-		return *u.DisplayName
+	if len(u.DisplayName) > 0 {
+		return u.DisplayName
 	}
-	if u.Username != nil {
-		return *u.Username
+	if len(u.Username) > 0 {
+		return u.Username
 	}
 	if (u.Email != nil) && (len(u.Email) > 0) {
-		return u.Email[0]
+		return u.Email[0].Email
 	}
 	return fmt.Sprintf("%d", u.Guid)
 }
 
 // mostly for use in templates
 func (u *User) HasLocalUser() bool {
-	return u.Username != nil && u.Password != nil
+	return len(u.Username) > 0 && u.Password != nil
 }
 
-func (u *User) FeatureEnabled(featureNumber int) bool {
-	i := sort.SearchInts(u.Features, featureNumber)
-	if (i < len(u.Features)) && (u.Features[i] == featureNumber) {
-		return true
-	}
-	return false
-}
-
-func (u *User) SetFeature(featureNumber int, enable bool) {
-	i := sort.SearchInts(u.Features, featureNumber)
-	if (i < len(u.Features)) && (u.Features[i] == featureNumber) {
-		if enable {
-			// already there, done
-			return
-		} else {
-			// disable
-			copy(u.Features[i:len(u.Features)-1], u.Features[i+1:len(u.Features)])
-			u.Features = u.Features[:len(u.Features)-1]
-			return
+func (u *User) HasEmail(email string) bool {
+	for _, em := range u.Email {
+		if em.Email == email {
+			return true
 		}
 	}
-	if !enable {
-		// already not there, done
-		return
-	}
-	// add to enable list
-	u.Features = append(u.Features, featureNumber)
-	sort.Ints(u.Features)
-}
-
-// Feature enum:
-const (
-	FEATURE_amazonPay = 1
-)
-
-// for templates
-func (u *User) AmazonPayEnalbed() bool {
-	return u.FeatureEnabled(FEATURE_amazonPay)
+	return false
 }

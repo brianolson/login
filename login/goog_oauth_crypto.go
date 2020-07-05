@@ -1,4 +1,4 @@
-package sql
+package login
 
 import (
 	"crypto"
@@ -17,8 +17,10 @@ import (
 	"sync"
 	"time"
 
-	"bolson.org/~/src/httpcache"
 	jwt "github.com/dgrijalva/jwt-go"
+
+	"bolson.org/~/src/httpcache"
+	//"bolson.org/~/src/login/login/sql"
 )
 
 /*
@@ -222,9 +224,8 @@ func decodeGoogleIdToken(id_token, keys_json string) (*UserSocial, error) {
 	tusername, ok = jsgets(userd, "sub")
 	if ok {
 		return &UserSocial{
-			"google",
-			tusername,
-			nil,
+			Service: "google",
+			Id:      tusername,
 		}, nil
 	}
 

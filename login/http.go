@@ -1,11 +1,21 @@
-package sql
+package login
 
 import (
 	"log"
 	"net/http"
 
 	"bolson.org/~/src/login/login/crypto"
+	"bolson.org/~/src/login/login/sql"
 )
+
+type UserDB = sql.UserDB
+type User = sql.User
+type UserSocial = sql.UserSocial
+type EmailRecord = sql.EmailRecord
+
+var NewEmail = sql.NewEmail
+
+var BadUserError = sql.BadUserError
 
 func cookieGetUser(out http.ResponseWriter, request *http.Request, udb UserDB) (*User, error) {
 	cx, err := request.Cookie("u")

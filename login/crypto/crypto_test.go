@@ -9,7 +9,7 @@ var testAesKey []byte = []byte("0123456789012345")
 
 func TestParseUserCookie(t *testing.T) {
 	cookieKey = testAesKey
-	var uid uint64 = 1234
+	var uid int64 = 1234
 
 	xcs := LoginCookieStruct{
 		time.Now().Unix(),

@@ -1,4 +1,4 @@
-package sql
+package login
 
 import (
 	"crypto/rand"
@@ -11,8 +11,10 @@ import (
 	"net/url"
 	"time"
 
-	"bolson.org/~/src/login/login/crypto"
 	oauth "golang.org/x/oauth2"
+
+	"bolson.org/~/src/login/login/crypto"
+	"bolson.org/~/src/login/login/sql"
 )
 
 func loadConfigs(rin io.Reader) (map[string]oauth.Config, error) {
@@ -28,7 +30,7 @@ func loadConfigs(rin io.Reader) (map[string]oauth.Config, error) {
 type OauthCallbackHandler struct {
 	Name       string
 	Config     oauth.Config
-	UdbFactory func() (UserDB, error)
+	UdbFactory func() (sql.UserDB, error)
 	HomePath   string
 	ErrorPath  string
 }
@@ -148,12 +150,30 @@ func (cb *OauthCallbackHandler) maybeDecodeExtraToken(out http.ResponseWriter, r
 	return false
 }
 
+/*
+// expected data in facebookGetMoreInfo below
 type FbInfo struct {
 	Email    string  `json:"email"`
 	Name     string  `json:"name"`
 	Id       string  `json:"id"`
 	Gender   string  `json:"gender"`
 	Timezone float64 `json:"timezone"`
+}
+*/
+
+func dgets(d map[string]interface{}, k string) string {
+	v, ok := d[k]
+	if !ok {
+		return ""
+	}
+	switch sv := v.(type) {
+	case string:
+		return sv
+	case []byte:
+		return string(sv)
+	default:
+		return ""
+	}
 }
 
 func (cb *OauthCallbackHandler) facebookGetMoreInfo(out http.ResponseWriter, request *http.Request, udb UserDB, tok *oauth.Token) bool {
@@ -165,7 +185,7 @@ func (cb *OauthCallbackHandler) facebookGetMoreInfo(out http.ResponseWriter, req
 	}
 
 	dec := json.NewDecoder(resp.Body)
-	var info FbInfo
+	var info map[string]interface{} //FbInfo
 	err = dec.Decode(&info)
 	if err != nil {
 		log.Print("failed decoding fb me json ", err)
@@ -173,9 +193,9 @@ func (cb *OauthCallbackHandler) facebookGetMoreInfo(out http.ResponseWriter, req
 	}
 
 	tsoc := UserSocial{
-		"facebook",
-		info.Id,
-		info,
+		Service: "facebook",
+		Id:      info["id"].(string),
+		Data:    info,
 	}
 
 	xu, err := udb.GetSocialUser(tsoc.Service, tsoc.Id)
@@ -184,12 +204,14 @@ func (cb *OauthCallbackHandler) facebookGetMoreInfo(out http.ResponseWriter, req
 		xu = &User{}
 		xu.Social = make([]UserSocial, 1)
 		xu.Social[0] = tsoc
-		if len(info.Email) > 0 {
+		email := dgets(info, "email")
+		if len(email) > 0 {
 			xu.Email = make([]EmailRecord, 1)
-			xu.Email[0] = NewEmail(info.Email)
+			xu.Email[0] = NewEmail(email)
 		}
-		if len(info.Name) > 0 {
-			xu.DisplayName = info.Name
+		name := dgets(info, "name")
+		if len(name) > 0 {
+			xu.DisplayName = name
 		}
 		xu, err = udb.PutNewUser(xu)
 	}

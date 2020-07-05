@@ -551,7 +551,7 @@ func (sdb *sqlite3UserDB) GetLocalUser(uid string) (*User, error) {
 }
 func (sdb *sqlite3UserDB) GetSocialUser(service, id string) (*User, error) {
 	socialkey := SocialKey(service, id)
-	cmd := `SELECT g.username, g.password, g.prefs, e.email, e.data, g.ROWID, s.socialkey, s.socialdata FROM user_social s LEFT JOIN guser g ON s.id = g.ROWID LEFT JOIN user_email e ON g.ROWID = e.id WHERE s.socialkey = $1`
+	cmd := `WITH sq AS (SELECT sqs.id FROM user_social sqs WHERE sqs.socialkey = $1 LIMIT 1) SELECT g.username, g.password, g.prefs, e.email, e.data, g.ROWID, s.socialkey, s.socialdata FROM guser g JOIN sq ON g.ROWID = sq.id LEFT JOIN user_email e ON g.ROWID = e.id LEFT JOIN user_social s ON g.ROWID = s.id`
 	rows, err := sdb.db.Query(cmd, socialkey)
 	if err != nil {
 		log.Printf("sql err on %#v: %s", cmd, err)

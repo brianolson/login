@@ -208,7 +208,7 @@ func postgresGetLocalUser(db *sql.DB, uid string) (*User, error) {
 
 func postgresGetSocialUser(db *sql.DB, service, id string) (*User, error) {
 	socialkey := SocialKey(service, id)
-	cmd := `SELECT g.username, g.password, g.prefs, e.email, e.data, g.id, s.socialkey, s.socialdata FROM user_social s LEFT JOIN guser g ON s.id = g.id LEFT JOIN user_email e ON g.id = e.id WHERE s.socialkey = $1`
+	cmd := `WITH sq AS (SELECT sqs.id FROM user_social sqs WHERE sqs.socialkey = $1 LIMIT 1) SELECT g.username, g.password, g.prefs, e.email, e.data, g.id, s.socialkey, s.socialdata FROM guser g JOIN sq ON g.id = sq.id LEFT JOIN user_email e ON g.id = e.id LEFT JOIN user_social s ON g.id = s.id`
 	rows, err := db.Query(cmd, socialkey)
 	if err != nil {
 		log.Printf("sql err on %#v: %s", cmd, err)

@@ -20,7 +20,6 @@ import (
 	jwt "github.com/dgrijalva/jwt-go"
 
 	"bolson.org/~/src/httpcache"
-	//"bolson.org/~/src/login/login/sql"
 )
 
 /*
@@ -83,6 +82,7 @@ func getClient() *http.Client {
 	return cacheingHttpClient
 }
 
+// Fetch latest google oauth keys.
 func GetGoogKeysJson() (string, error) {
 	if (len(goog_keys_json_cache) > 0) && (goog_keys_json_cache_expiretime > 0) && (goog_keys_json_cache_expiretime > time.Now().Unix()) {
 		// return cached string

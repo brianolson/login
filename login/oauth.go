@@ -17,9 +17,12 @@ import (
 	"bolson.org/~/src/login/login/sql"
 )
 
-func loadConfigs(rin io.Reader) (map[string]oauth.Config, error) {
+type OauthConfig = oauth.Config
+
+// Read JSON that should be a dict of {"service name":{oauth2.Config object}}e
+func ParseConfigJSON(rin io.Reader) (map[string]OauthConfig, error) {
 	dec := json.NewDecoder(rin)
-	configs := make(map[string]oauth.Config)
+	configs := make(map[string]OauthConfig)
 	err := dec.Decode(&configs)
 	if err != nil {
 		return nil, err
@@ -27,9 +30,10 @@ func loadConfigs(rin io.Reader) (map[string]oauth.Config, error) {
 	return configs, nil
 }
 
+// Handler for misc oauth login services. Google, fb, etc.
 type OauthCallbackHandler struct {
 	Name       string
-	Config     oauth.Config
+	Config     OauthConfig
 	UdbFactory func() (sql.UserDB, error)
 	HomePath   string
 	ErrorPath  string
@@ -43,7 +47,7 @@ func (cb *OauthCallbackHandler) handlerUrl() string {
 
 // Returns URL that user's browser should load to start auth
 func (cb *OauthCallbackHandler) StartUrl() string {
-	csrf, err := MakeCSRFStr()
+	csrf, err := makeCSRFStr()
 	if err != nil {
 		log.Print("MakeCSRF fail ", err)
 		csrf = "foo"
@@ -54,7 +58,7 @@ func (cb *OauthCallbackHandler) StartUrl() string {
 // Redirect handler receives state and auth from server.
 // config should point oauth other side at this
 func (cb *OauthCallbackHandler) ServeHTTP(out http.ResponseWriter, request *http.Request) {
-	ok, err := CheckCSRFStr(request.FormValue("state"))
+	ok, err := checkCSRFStr(request.FormValue("state"))
 	if err != nil {
 		log.Print("CSRF check fail ", err)
 	} else if !ok {
@@ -247,12 +251,19 @@ func (cb *OauthCallbackHandler) String() string {
 	return fmt.Sprintf("CbH(%s: %v)", cb.Name, cb.Config)
 }
 
-func BuildOauthMods(fin io.Reader, mux *http.ServeMux, udbFactory func() (UserDB, error), homePath string, errPath string) ([]*OauthCallbackHandler, error) {
-	configs, err := loadConfigs(fin)
-	if err != nil {
-		log.Fatal(err)
-		return nil, err
-	}
+// Configs should be map[string]oauth2.Config from golang.org/x/oauth2
+// e.g.
+// {"google":{"ClientID":"123-ABC.apps.googleusercontent.com", "ClientSecret":"12345", "Scopes": ["openid", "email"], "Endpoint":{"AuthURL":"https://accounts.google.com/o/oauth2/auth", "TokenURL":"https://accounts.google.com/o/oauth2/token"}, "RedirectURL":"https://myapp.com/login/google/callback"}}
+//
+// See ParseConfigJSON
+func BuildOauthMods(configs map[string]OauthConfig, mux *http.ServeMux, udbFactory func() (UserDB, error), homePath string, errPath string) ([]*OauthCallbackHandler, error) {
+	/*
+		configs, err := ParseConfigJSON(fin)
+		if err != nil {
+			log.Fatal(err)
+			return nil, err
+		}
+	*/
 	//log.Print("building oath modules: ", configs)
 	authmods := make([]*OauthCallbackHandler, 0)
 	for serviceName, conf := range configs {
@@ -270,7 +281,7 @@ func BuildOauthMods(fin io.Reader, mux *http.ServeMux, udbFactory func() (UserDB
 
 const randomPadLength = 8
 
-func MakeCSRFStr() (string, error) {
+func makeCSRFStr() (string, error) {
 
 	rpad := make([]byte, randomPadLength+10)
 	_, err := io.ReadFull(rand.Reader, rpad)
@@ -288,7 +299,7 @@ func MakeCSRFStr() (string, error) {
 
 const MAX_CSRF_TOKEN_SECONDS = 300
 
-func CheckCSRFStr(data string) (bool, error) {
+func checkCSRFStr(data string) (bool, error) {
 	ct, err := crypto.B64Decrypt(data)
 	if err != nil {
 		return false, err

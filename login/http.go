@@ -5,19 +5,9 @@ import (
 	"net/http"
 
 	"bolson.org/~/src/login/login/crypto"
-	"bolson.org/~/src/login/login/sql"
 )
 
-type UserDB = sql.UserDB
-type User = sql.User
-type UserSocial = sql.UserSocial
-type EmailRecord = sql.EmailRecord
-
-var NewEmail = sql.NewEmail
-
-var BadUserError = sql.BadUserError
-
-func cookieGetUser(out http.ResponseWriter, request *http.Request, udb UserDB) (*User, error) {
+func cookieGetUser(request *http.Request, udb UserDB) (*User, error) {
 	cx, err := request.Cookie("u")
 	if err == http.ErrNoCookie {
 		//log.Print("no user cookie")
@@ -70,8 +60,10 @@ func formGetUser(out http.ResponseWriter, request *http.Request, udb UserDB) (*U
 	}
 }
 
+// Checkes request for cookier or form login.
+// May set cookie in response if form login is successful.
 func GetHttpUser(out http.ResponseWriter, request *http.Request, udb UserDB) (*User, error) {
-	user, err := cookieGetUser(out, request, udb)
+	user, err := cookieGetUser(request, udb)
 	if user != nil {
 		return user, err
 	}
@@ -83,8 +75,10 @@ func MakeHttpCookie(xuc string) *http.Cookie {
 	return &http.Cookie{Name: "u", Value: xuc, MaxAge: 14 * 24 * 3600, Path: "/"}
 }
 
+// Clear cookie. Redirect to /
 func LogoutHandler(out http.ResponseWriter, request *http.Request) {
 	// TODO: require nonce
+	// TODO: configurable redirect destination
 	xcookie := &http.Cookie{Name: "u", MaxAge: -1}
 	//log.Print("LOGOUT Cookie ", xcookie.String())
 	http.SetCookie(out, xcookie)

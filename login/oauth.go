@@ -40,7 +40,7 @@ type OauthCallbackHandler struct {
 }
 
 // local path which this Handler should register for
-func (cb *OauthCallbackHandler) handlerUrl() string {
+func (cb *OauthCallbackHandler) HandlerUrl() string {
 	u, _ := url.Parse(cb.Config.RedirectURL)
 	return u.Path
 }
@@ -256,22 +256,11 @@ func (cb *OauthCallbackHandler) String() string {
 // {"google":{"ClientID":"123-ABC.apps.googleusercontent.com", "ClientSecret":"12345", "Scopes": ["openid", "email"], "Endpoint":{"AuthURL":"https://accounts.google.com/o/oauth2/auth", "TokenURL":"https://accounts.google.com/o/oauth2/token"}, "RedirectURL":"https://myapp.com/login/google/callback"}}
 //
 // See ParseConfigJSON
-func BuildOauthMods(configs map[string]OauthConfig, mux *http.ServeMux, udbFactory func() (UserDB, error), homePath string, errPath string) ([]*OauthCallbackHandler, error) {
-	/*
-		configs, err := ParseConfigJSON(fin)
-		if err != nil {
-			log.Fatal(err)
-			return nil, err
-		}
-	*/
-	//log.Print("building oath modules: ", configs)
+func BuildOauthMods(configs map[string]OauthConfig, udbFactory func() (UserDB, error), homePath string, errPath string) ([]*OauthCallbackHandler, error) {
 	authmods := make([]*OauthCallbackHandler, 0)
 	for serviceName, conf := range configs {
 		cb := &OauthCallbackHandler{serviceName, conf, udbFactory, homePath, errPath}
-		//log.Print(serviceName, conf)
-		//log.Print(cb.StartUrl())
 		authmods = append(authmods, cb)
-		mux.Handle(cb.handlerUrl(), cb)
 	}
 	for _, cb := range authmods {
 		log.Print(cb.Name, cb.Config, cb.StartUrl())

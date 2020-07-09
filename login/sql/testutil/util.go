@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	ls "bolson.org/~/src/login/login/sql"
+	ls "github.com/brianolson/login/login/sql"
 )
 
 func Maybefail(err error, format string, args ...interface{}) {

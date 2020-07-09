@@ -13,8 +13,8 @@ import (
 
 	oauth "golang.org/x/oauth2"
 
-	"bolson.org/~/src/login/login/crypto"
-	"bolson.org/~/src/login/login/sql"
+	"github.com/brianolson/login/login/crypto"
+	"github.com/brianolson/login/login/sql"
 )
 
 type OauthConfig = oauth.Config

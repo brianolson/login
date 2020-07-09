@@ -4,7 +4,7 @@ import (
 	"log"
 	"net/http"
 
-	"bolson.org/~/src/login/login/crypto"
+	"github.com/brianolson/login/login/crypto"
 )
 
 func cookieGetUser(request *http.Request, udb UserDB) (*User, error) {

@@ -9,8 +9,8 @@ import (
 
 	_ "github.com/lib/pq"
 
-	ls "bolson.org/~/src/login/login/sql"
-	tu "bolson.org/~/src/login/login/sql/testutil"
+	ls "github.com/brianolson/login/login/sql"
+	tu "github.com/brianolson/login/login/sql/testutil"
 )
 
 // go get github.com/lib/pq

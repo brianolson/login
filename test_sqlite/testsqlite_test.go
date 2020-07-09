@@ -8,8 +8,8 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 
-	ls "bolson.org/~/src/login/login/sql"
-	tu "bolson.org/~/src/login/login/sql/testutil"
+	ls "github.com/brianolson/login/login/sql"
+	tu "github.com/brianolson/login/login/sql/testutil"
 )
 
 // go get github.com/mattn/go-sqlite3

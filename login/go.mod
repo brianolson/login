@@ -1,4 +1,4 @@
-module bolson.org/~/src/login/login
+module github.com/brianolson/login/login
 
 go 1.14
 

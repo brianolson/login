@@ -1,8 +1,8 @@
 package login
 
 import (
-	"bolson.org/~/src/login/login/crypto"
-	"bolson.org/~/src/login/login/sql"
+	"github.com/brianolson/login/login/crypto"
+	"github.com/brianolson/login/login/sql"
 )
 
 type UserDB = sql.UserDB

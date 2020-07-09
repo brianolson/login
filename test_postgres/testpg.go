@@ -8,7 +8,7 @@ import (
 
 	_ "github.com/lib/pq"
 
-	tu "bolson.org/~/src/login/login/sql/testutil"
+	tu "github.com/brianolson/login/login/sql/testutil"
 )
 
 var maybefail = tu.Maybefail

@@ -7,7 +7,7 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 
-	tu "bolson.org/~/src/login/login/sql/testutil"
+	tu "github.com/brianolson/login/login/sql/testutil"
 )
 
 var maybefail = tu.Maybefail

@@ -19,7 +19,7 @@ import (
 
 	jwt "github.com/dgrijalva/jwt-go"
 
-	"bolson.org/~/src/httpcache"
+	"github.com/brianolson/httpcache"
 )
 
 /*

@@ -8,5 +8,3 @@ require (
 )
 
 replace bolson.org/~/src/login/login => ../login
-
-replace bolson.org/~/src/httpcache => ../../httpcache

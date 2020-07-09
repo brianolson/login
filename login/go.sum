@@ -1,6 +1,8 @@
 cloud.google.com/go v0.34.0/go.mod h1:aQUYkXzVsufM+DwF1aE+0xfcU+56JwCaLick0ClmMTw=
 github.com/brianolson/cbor_go v1.0.0 h1:CurpJr4z5P94x/CtFgM9tf9QEEfUBJSRxR/4jbftw0E=
 github.com/brianolson/cbor_go v1.0.0/go.mod h1:oGF4+yGIBUbkxYYGKSJRGIZ4Z91crezxGZAnnslEtT0=
+github.com/brianolson/httpcache v0.0.0-20200709013225-a410f4bb8cde h1:QLywXTVWVKIX1O08bvL7JGliA+Tda1AiXESPwOQIiTQ=
+github.com/brianolson/httpcache v0.0.0-20200709013225-a410f4bb8cde/go.mod h1:OCITr7XZuRB7PTKrfN0Dqlmm7N83Co+SVnciFf/0dHY=
 github.com/dgrijalva/jwt-go v3.2.0+incompatible h1:7qlOGliEKZXTDg6OTjfoBKDXWrumCAMpl/TFQ4/5kLM=
 github.com/dgrijalva/jwt-go v3.2.0+incompatible/go.mod h1:E3ru+11k8xSBh+hMPgOLZmtrrCbhqsmaPHjLKYnJCaQ=
 github.com/golang/protobuf v1.2.0 h1:P3YflyNX/ehuJFLhxviNdFxQPkGK5cDcApsge1SqnvM=

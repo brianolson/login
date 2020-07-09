@@ -31,11 +31,11 @@ func formGetUser(out http.ResponseWriter, request *http.Request, udb UserDB) (*U
 		log.Print(err)
 		return nil, err
 	}
-	username := request.Form.Get("name")
+	username := request.Form.Get("username")
 	if len(username) == 0 {
 		return nil, nil
 	}
-	password := request.Form.Get("pass")
+	password := request.Form.Get("password")
 
 	dbuser, err := udb.GetLocalUser(username)
 	if err != nil {

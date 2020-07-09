@@ -1,6 +1,7 @@
 package login
 
 import (
+	"bolson.org/~/src/login/login/crypto"
 	"bolson.org/~/src/login/login/sql"
 )
 
@@ -13,3 +14,6 @@ var NewEmail = sql.NewEmail
 
 var BadUserError = sql.BadUserError
 var NewSqlUserDB = sql.NewSqlUserDB
+
+var GenerateCookieKey = crypto.GenerateCookieKey
+var SetCookieKey = crypto.SetCookieKey

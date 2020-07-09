@@ -3,12 +3,12 @@ package crypto
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"errors"
+	"sync"
 
-	//"crypto/sha256"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/binary"
-	"flag"
 	"io"
 	"log"
 	"time"
@@ -17,36 +17,51 @@ import (
 	cbor "github.com/brianolson/cbor_go"
 )
 
-var flagCookieKey *string = flag.String("cookie-key", "", "base64 encoded aes key (16,24,32 decoded bytes)")
-
 // TODO: keep a rotating set of server keys, decode incoming cookies against any of them, rotate out the oldest key periodically, re-key user login cookies if they're not on the newest key. 'server key' could also specify different random pad length, different encryption algorithm, different encoded data (not just guid), etc.
 
 var cookieKey []byte
+var cookieKeyLock sync.RWMutex
+
+const CookieKeyByteLen = 16
+
+// Generate a new random key and set it and return it
+func GenerateCookieKey() []byte {
+	cookieKeyLock.Lock()
+	defer cookieKeyLock.Unlock()
+	nk := make([]byte, CookieKeyByteLen)
+	_, err := io.ReadFull(rand.Reader, nk)
+	if err != nil {
+		log.Print(err)
+		return nil
+	}
+	cookieKey = nk
+	//log.Print("new key base64: " + base64.StdEncoding.EncodeToString(cookieKey))
+	return cookieKey
+}
+
+var ErrKeyWrongLength = errors.New("key not 16 bytes")
+
+func SetCookieKey(key []byte) error {
+	if len(key) != CookieKeyByteLen {
+		return ErrKeyWrongLength
+	}
+	cookieKeyLock.Lock()
+	defer cookieKeyLock.Unlock()
+	cookieKey = key
+	return nil
+}
 
 func getkey() []byte {
-	// idempotent. doesn't need to be thread safe.
-	var err error
-	if cookieKey == nil {
-		if len(*flagCookieKey) > 0 {
-			tk, err := base64.StdEncoding.DecodeString(*flagCookieKey)
-			if err != nil {
-				log.Print(err)
-				return nil
-			}
-			cookieKey = tk
-		} else {
-			// generate a key
-			nk := make([]byte, 16)
-			_, err = io.ReadFull(rand.Reader, nk)
-			if err != nil {
-				log.Print(err)
-				return nil
-			}
-			cookieKey = nk
-			log.Print("new key base64: " + base64.StdEncoding.EncodeToString(cookieKey))
-		}
+	var k []byte
+	cookieKeyLock.RLock()
+	k = cookieKey
+	cookieKeyLock.RUnlock()
+	if k != nil {
+		return k
 	}
-	return cookieKey
+	out := GenerateCookieKey()
+	log.Print("new key base64: " + base64.StdEncoding.EncodeToString(out))
+	return out
 }
 
 type LoginCookieStruct struct {

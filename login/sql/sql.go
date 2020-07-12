@@ -45,9 +45,6 @@ type UserDB interface {
 	DelEmail(user *User, email string) error
 
 	Feedback(user *User, now int64, text string) error
-
-	// Release connection
-	Close()
 }
 
 func strInStrs(they []string, it string) bool {
@@ -498,11 +495,6 @@ func (sdb *postgresUserDB) Setup() error {
 	return postgresCreateTables(sdb.db)
 }
 
-func (sdb *postgresUserDB) Close() {
-	sdb.db.Close()
-	sdb.db = nil
-}
-
 type sqlite3UserDB struct {
 	db *sql.DB
 }
@@ -586,9 +578,4 @@ func (sdb *sqlite3UserDB) Feedback(user *User, now int64, text string) error {
 
 func (sdb *sqlite3UserDB) Setup() error {
 	return sqlite3CreateTables(sdb.db)
-}
-
-func (sdb *sqlite3UserDB) Close() {
-	sdb.db.Close()
-	sdb.db = nil
 }

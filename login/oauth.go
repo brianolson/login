@@ -32,11 +32,11 @@ func ParseConfigJSON(rin io.Reader) (map[string]OauthConfig, error) {
 
 // Handler for misc oauth login services. Google, fb, etc.
 type OauthCallbackHandler struct {
-	Name       string
-	Config     OauthConfig
-	UdbFactory func() (sql.UserDB, error)
-	HomePath   string
-	ErrorPath  string
+	Name      string
+	Config    OauthConfig
+	Udb       sql.UserDB
+	HomePath  string
+	ErrorPath string
 }
 
 // local path which this Handler should register for
@@ -73,14 +73,12 @@ func (cb *OauthCallbackHandler) ServeHTTP(out http.ResponseWriter, request *http
 	//log.Print("oauth tok ", tok)
 	//log.Print("extra['id_token'] ", tok.Extra("id_token"))
 	//log.Print("avail extra ", tok.ExtraKeys()) // TODO: submit patch to oauth
-	udb, err := cb.UdbFactory() //OpenDefault()
-	defer udb.Close()
 
-	// TODO: subclass?
+	// TODO: subclass? interface?
 	if cb.Name == "google" {
 		id_tokenp := tok.Extra("id_token")
 		if id_tokenp != nil {
-			if cb.maybeDecodeExtraToken(out, request, udb, id_tokenp) {
+			if cb.maybeDecodeExtraToken(out, request, cb.Udb, id_tokenp) {
 				// was handled. done.
 				return
 			}
@@ -88,7 +86,7 @@ func (cb *OauthCallbackHandler) ServeHTTP(out http.ResponseWriter, request *http
 		log.Print("google without id_token")
 	} else if cb.Name == "facebook" {
 		// TODO: make this asynchronous? return logged in immediately and fill in extra data into user profile later?
-		if cb.facebookGetMoreInfo(out, request, udb, tok) {
+		if cb.facebookGetMoreInfo(out, request, cb.Udb, tok) {
 			return
 		}
 	}
@@ -98,7 +96,7 @@ func (cb *OauthCallbackHandler) ServeHTTP(out http.ResponseWriter, request *http
 	http.Redirect(out, request, cb.ErrorPath, 303)
 }
 
-func (cb *OauthCallbackHandler) maybeDecodeExtraToken(out http.ResponseWriter, request *http.Request, udb UserDB, id_tokenp interface{}) (done bool) {
+func (cb *OauthCallbackHandler) maybeDecodeExtraToken(out http.ResponseWriter, request *http.Request, id_tokenp interface{}) (done bool) {
 	id_token, ok := id_tokenp.(string)
 	if !ok {
 		return false
@@ -118,13 +116,13 @@ func (cb *OauthCallbackHandler) maybeDecodeExtraToken(out http.ResponseWriter, r
 		log.Print("decoding google id token got nil tsoc")
 		return false
 	}
-	xu, err := udb.GetSocialUser(tsocuser.Service, tsocuser.Id)
+	xu, err := cb.Udb.GetSocialUser(tsocuser.Service, tsocuser.Id)
 	if xu == nil {
 		log.Printf("creating db user for social %s:%s", tsocuser.Service, tsocuser.Id)
 		xu = &User{}
 		xu.Social = make([]UserSocial, 1)
 		xu.Social[0] = *tsocuser
-		xu, err = udb.PutNewUser(xu)
+		xu, err = cb.Udb.PutNewUser(xu)
 	}
 	if (err == nil) && (xu != nil) {
 		xuc, err := crypto.MakeLoginCookie(xu.Guid)
@@ -202,7 +200,7 @@ func (cb *OauthCallbackHandler) facebookGetMoreInfo(out http.ResponseWriter, req
 		Data:    info,
 	}
 
-	xu, err := udb.GetSocialUser(tsoc.Service, tsoc.Id)
+	xu, err := cb.Udb.GetSocialUser(tsoc.Service, tsoc.Id)
 	if xu == nil {
 		log.Printf("creating db social user %s:%s", tsoc.Service, tsoc.Id)
 		xu = &User{}
@@ -217,7 +215,7 @@ func (cb *OauthCallbackHandler) facebookGetMoreInfo(out http.ResponseWriter, req
 		if len(name) > 0 {
 			xu.DisplayName = name
 		}
-		xu, err = udb.PutNewUser(xu)
+		xu, err = cb.Udb.PutNewUser(xu)
 	}
 	if (err == nil) && (xu != nil) {
 		xuc, err := crypto.MakeLoginCookie(xu.Guid)
@@ -256,10 +254,10 @@ func (cb *OauthCallbackHandler) String() string {
 // {"google":{"ClientID":"123-ABC.apps.googleusercontent.com", "ClientSecret":"12345", "Scopes": ["openid", "email"], "Endpoint":{"AuthURL":"https://accounts.google.com/o/oauth2/auth", "TokenURL":"https://accounts.google.com/o/oauth2/token"}, "RedirectURL":"https://myapp.com/login/google/callback"}}
 //
 // See ParseConfigJSON
-func BuildOauthMods(configs map[string]OauthConfig, udbFactory func() (UserDB, error), homePath string, errPath string) ([]*OauthCallbackHandler, error) {
+func BuildOauthMods(configs map[string]OauthConfig, udb UserDB, homePath string, errPath string) ([]*OauthCallbackHandler, error) {
 	authmods := make([]*OauthCallbackHandler, 0)
 	for serviceName, conf := range configs {
-		cb := &OauthCallbackHandler{serviceName, conf, udbFactory, homePath, errPath}
+		cb := &OauthCallbackHandler{serviceName, conf, udb, homePath, errPath}
 		authmods = append(authmods, cb)
 	}
 	for _, cb := range authmods {

@@ -36,8 +36,7 @@ func TestMain(m *testing.M) {
 
 	tdb = db
 
-	result := m.Run()
-	os.Exit(result)
+	os.Exit(m.Run())
 }
 
 func TestBasicUser(t *testing.T) {

@@ -78,7 +78,7 @@ func (cb *OauthCallbackHandler) ServeHTTP(out http.ResponseWriter, request *http
 	if cb.Name == "google" {
 		id_tokenp := tok.Extra("id_token")
 		if id_tokenp != nil {
-			if cb.maybeDecodeExtraToken(out, request, cb.Udb, id_tokenp) {
+			if cb.maybeDecodeExtraToken(out, request, id_tokenp) {
 				// was handled. done.
 				return
 			}

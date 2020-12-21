@@ -427,7 +427,8 @@ type postgresUserDB struct {
 
 // implement innerDriver
 func (sdb *postgresUserDB) PutGuser(tx *sql.Tx, nu *User, pblob []byte) (int64, error) {
-	idrows, err := tx.Query(`INSERT INTO guser (username, password, prefs) VALUES ($1, $2, $3) RETURNING id`, nu.Username, nu.Password, pblob)
+	username := sql.NullString{String: nu.Username, Valid: nu.Username != ""}
+	idrows, err := tx.Query(`INSERT INTO guser (username, password, prefs) VALUES ($1, $2, $3) RETURNING id`, username, nu.Password, pblob)
 	if err != nil {
 		err = fmt.Errorf("error inserting new user: %s", err)
 		return 0, err
@@ -501,7 +502,8 @@ type sqlite3UserDB struct {
 
 // implement innerDriver
 func (sdb *sqlite3UserDB) PutGuser(tx *sql.Tx, nu *User, pblob []byte) (int64, error) {
-	result, err := tx.Exec(`INSERT INTO guser (username, password, prefs) VALUES ($1, $2, $3)`, nu.Username, nu.Password, pblob)
+	username := sql.NullString{String: nu.Username, Valid: nu.Username != ""}
+	result, err := tx.Exec(`INSERT INTO guser (username, password, prefs) VALUES ($1, $2, $3)`, username, nu.Password, pblob)
 	if err != nil {
 		err = fmt.Errorf("error inserting new user: %s", err)
 		return 0, err

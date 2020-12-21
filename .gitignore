@@ -1,3 +1,5 @@
 *~
 .*
+# see go.mod in login, test_sqlite, test_postgres
+./go.mod
 test_sqlite/test_sqlite

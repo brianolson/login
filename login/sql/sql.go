@@ -89,9 +89,15 @@ func readUserFromSelect(rows *sql.Rows) (*User, error) {
 		emailmetablob = nil
 		socialkey = nil
 		socialdata = nil
-		err = rows.Scan(&u.Username, &u.Password, &prefs, &email, &emailmetablob, &u.Guid, &socialkey, &socialdata)
+		var nilname sql.NullString
+		err = rows.Scan(&nilname, &u.Password, &prefs, &email, &emailmetablob, &u.Guid, &socialkey, &socialdata)
 		if err != nil {
 			break
+		}
+		if nilname.Valid {
+			u.Username = nilname.String
+		} else {
+			u.Username = ""
 		}
 		if (email != nil) && (len(email) > 0) && !u.HasEmail(string(email)) {
 			ne := EmailRecord{Email: string(email)}

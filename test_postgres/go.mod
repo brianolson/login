@@ -8,5 +8,3 @@ require (
 )
 
 replace github.com/brianolson/login/login => ../login
-
-replace github.com/brianolson/httpcache => ../../httpcache

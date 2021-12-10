@@ -1,6 +1,6 @@
 module github.com/brianolson/login/test_postgres
 
-go 1.14
+go 1.16
 
 require (
 	github.com/brianolson/login/login v0.0.0

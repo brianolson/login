@@ -27,7 +27,7 @@ func TestParseUserCookie(t *testing.T) {
 		t.Error(err)
 	}
 
-	lguid, err := ParseLogin(cstr)
+	lguid, _, err := ParseLogin(cstr)
 	if err != nil {
 		t.Error(err)
 	}

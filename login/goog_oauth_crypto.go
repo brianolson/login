@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"math/big"
 	"net/http"
@@ -60,36 +59,45 @@ const keys_json = `{
 
 */
 
-var goog_keys_json_cache string
-var goog_keys_json_cache_expiretime int64 = 0
+type GoogleKeyHolder struct {
+	cachePath                       string
+	goog_keys_json_cache            string
+	goog_keys_json_cache_expiretime int64
 
-var serverCredentialsCachePath string = "server_keys_cache"
-var cacheingHttpClient *http.Client
-var cacheingHttpClientLock sync.Mutex
+	cacheingHttpClient *http.Client
 
-func getClient() *http.Client {
-	cacheingHttpClientLock.Lock()
-	defer cacheingHttpClientLock.Unlock()
+	l sync.Mutex
+}
 
-	if cacheingHttpClient == nil {
+func NewGoogleKeyHolder(cachePath string) *GoogleKeyHolder {
+	return &GoogleKeyHolder{cachePath: cachePath}
+}
+
+// getClient returns caching http client (lazy allocation)
+// lock l should be held
+func (gkh *GoogleKeyHolder) getClient() *http.Client {
+
+	if gkh.cacheingHttpClient == nil {
 		var err error
-		cacheingHttpClient, err = httpcache.NewClient(serverCredentialsCachePath)
+		gkh.cacheingHttpClient, err = httpcache.NewClient(gkh.cachePath)
 		if err != nil {
 			log.Printf("error getting caching http client, %v", err)
 			return http.DefaultClient
 		}
 	}
-	return cacheingHttpClient
+	return gkh.cacheingHttpClient
 }
 
 // Fetch latest google oauth keys.
-func GetGoogKeysJson() (string, error) {
-	if (len(goog_keys_json_cache) > 0) && (goog_keys_json_cache_expiretime > 0) && (goog_keys_json_cache_expiretime > time.Now().Unix()) {
+func (gkh *GoogleKeyHolder) GetGoogKeysJson() (string, error) {
+	gkh.l.Lock()
+	defer gkh.l.Unlock()
+	if (len(gkh.goog_keys_json_cache) > 0) && (gkh.goog_keys_json_cache_expiretime > 0) && (gkh.goog_keys_json_cache_expiretime > time.Now().Unix()) {
 		// return cached string
-		return goog_keys_json_cache, nil
+		return gkh.goog_keys_json_cache, nil
 	}
 
-	client := getClient()
+	client := gkh.getClient()
 	response, err := client.Get("https://www.googleapis.com/oauth2/v3/certs")
 	if err == io.EOF {
 		// ok
@@ -101,15 +109,16 @@ func GetGoogKeysJson() (string, error) {
 		log.Print("non 200 goog keys json", response.Status)
 		return "", errors.New("keys unavailable. http")
 	}
-	tb, err := ioutil.ReadAll(response.Body)
+	tb, err := io.ReadAll(response.Body)
+	_ = response.Body.Close()
 	if err != nil {
 		log.Print("failed reading goog key json body ", err)
 		return "", err
 	}
 	log.Printf("get keys body len=%d v=%#v", response.ContentLength, string(tb))
-	goog_keys_json_cache = string(tb)
-	goog_keys_json_cache_expiretime = httpcache.CacheExpirationTime(response)
-	return goog_keys_json_cache, nil
+	gkh.goog_keys_json_cache = string(tb)
+	gkh.goog_keys_json_cache_expiretime = httpcache.CacheExpirationTime(response)
+	return gkh.goog_keys_json_cache, nil
 }
 
 func padDecode(foo string) ([]byte, error) {

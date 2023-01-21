@@ -2,17 +2,18 @@ package login
 
 import (
 	"github.com/brianolson/login/login/crypto"
+	"github.com/brianolson/login/login/data"
 	"github.com/brianolson/login/login/sql"
 )
 
-type UserDB = sql.UserDB
-type User = sql.User
-type UserSocial = sql.UserSocial
-type EmailRecord = sql.EmailRecord
+type UserDB = data.UserDB
+type User = data.User
+type UserSocial = data.UserSocial
+type EmailRecord = data.EmailRecord
 
-var NewEmail = sql.NewEmail
+var NewEmail = data.NewEmail
 
-var BadUserError = sql.BadUserError
+var BadUserError = data.BadUserError
 var NewSqlUserDB = sql.NewSqlUserDB
 
 var GenerateCookieKey = crypto.GenerateCookieKey

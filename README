@@ -1,1 +1,7 @@
 user-pass and social (oauth2) login framework for Go net/http
+
+TODO: passkey https://www.w3.org/TR/webauthn-2/
+
+```sh
+for sd in login test_sqlite test_postgres; do (echo ${sd}; cd ${sd}; go vet ./...); done
+```

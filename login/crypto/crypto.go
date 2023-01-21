@@ -103,16 +103,17 @@ func MakeLoginCookie(uid int64) (string, error) {
 func EncryptBytesToB64(rpad []byte) (string, error) {
 	key := getkey()
 	ac, err := aes.NewCipher(key)
-	bs := ac.BlockSize()
-	ciphertext := make([]byte, bs+len(rpad))
-	initialValue := ciphertext[:bs]
-	_, err = io.ReadFull(rand.Reader, initialValue)
+	enc, err := cipher.NewGCM(ac)
 	if err != nil {
 		return "", err
 	}
-	enc := cipher.NewCFBEncrypter(ac, initialValue)
-	enc.XORKeyStream(ciphertext[bs:], rpad)
-	// TODO: encrypt AND SIGN with hmac
+	ciphertext := make([]byte, enc.NonceSize()+enc.Overhead()+len(rpad))
+	nonce := ciphertext[:enc.NonceSize()]
+	_, err = io.ReadFull(rand.Reader, nonce)
+	if err != nil {
+		return "", err
+	}
+	ciphertext = enc.Seal(nonce, nonce, rpad, nil)
 
 	sout := base64.StdEncoding.EncodeToString(ciphertext)
 	//log.Printf("makeUserCookie %d iv, %d cbor -> %d base64", bs, len(rpad), len(sout))
@@ -120,26 +121,33 @@ func EncryptBytesToB64(rpad []byte) (string, error) {
 }
 
 func B64Decrypt(ucookie string) ([]byte, error) {
-	key := getkey()
 	defer func() {
 		if failed := recover(); failed != nil {
 			log.Printf("panic parsing user cookie: %v", failed)
 		}
 	}()
-	ac, err := aes.NewCipher(key)
-	bs := ac.BlockSize()
-
 	ciphertext, err := base64.StdEncoding.DecodeString(ucookie)
 	if err != nil {
 		log.Printf("cookie base64 decode fails %#v %s", ucookie, err)
 		return nil, err
 	}
-	initialValue := ciphertext[:bs]
-	ct := ciphertext[bs:]
-	//log.Printf("parseUserCookie %d base64 into %d bytes, %d iv %v ct", len(ucookie), len(ciphertext), len(initialValue), len(ct))
-	enc := cipher.NewCFBDecrypter(ac, initialValue)
-	enc.XORKeyStream(ct, ct)
-	return ct, nil
+	// TODO: keep private keys for as long as login cookies may be valid, generate new keys, try decrypt against key history
+	key := getkey()
+	return decryptForKey(key, ciphertext)
+}
+
+func decryptForKey(key, ciphertext []byte) ([]byte, error) {
+	ac, err := aes.NewCipher(key)
+	enc, err := cipher.NewGCM(ac)
+	if err != nil {
+		return nil, err
+	}
+
+	nlen := enc.NonceSize()
+	nonce := ciphertext[:nlen]
+	ct := ciphertext[nlen:]
+	plaintext, err := enc.Open(nil, nonce, ct, nil)
+	return plaintext, err
 }
 
 func parseUserCookie(ucookie string) (*LoginCookieStruct, error) {
@@ -161,18 +169,16 @@ func parseUserCookie(ucookie string) (*LoginCookieStruct, error) {
 	return &cs, nil
 }
 
-func ParseLogin(ucookie string) (int64, error) {
+func ParseLogin(ucookie string) (uid, loginTime int64, err error) {
 	cs, err := parseUserCookie(ucookie)
 	if err != nil {
 		log.Printf("failure in parseUserCookie %s", err)
-		return 0, err
+		return 0, 0, err
 	}
 	if cs == nil {
-		return 0, err
+		return 0, 0, err
 	}
-	// TODO: reject cookies older than [2 weeks?]
-	// TODO: reject cookies for a user older than a password change or other log-me-out-everywhere event
-	return cs.Guid, err
+	return cs.Guid, cs.Time, err
 }
 
 func Nonce() (nonce string, err error) {

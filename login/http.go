@@ -7,7 +7,7 @@ import (
 	"github.com/brianolson/login/login/crypto"
 )
 
-func cookieGetUser(request *http.Request, udb UserDB) (*User, error) {
+func CookieGetUser(request *http.Request, udb UserDB) (*User, error) {
 	cx, err := request.Cookie("u")
 	if err == http.ErrNoCookie {
 		//log.Print("no user cookie")
@@ -17,7 +17,7 @@ func cookieGetUser(request *http.Request, udb UserDB) (*User, error) {
 		//log.Print("err getting cookie ", err)
 		return nil, err
 	}
-	uid, err := crypto.ParseLogin(cx.Value)
+	uid, _, err := crypto.ParseLogin(cx.Value)
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +63,7 @@ func formGetUser(out http.ResponseWriter, request *http.Request, udb UserDB) (*U
 // Checkes request for cookier or form login.
 // May set cookie in response if form login is successful.
 func GetHttpUser(out http.ResponseWriter, request *http.Request, udb UserDB) (*User, error) {
-	user, err := cookieGetUser(request, udb)
+	user, err := CookieGetUser(request, udb)
 	if user != nil {
 		return user, err
 	}

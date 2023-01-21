@@ -8,44 +8,15 @@ import (
 	"reflect"
 
 	cbor "github.com/brianolson/cbor_go"
+	"github.com/brianolson/login/login/data"
 )
 
-// Actions on users:
-// new user (with local/social/email)
-// disable user
-// delete user
-//
-// add local login to user
-// update user local password
-// update user prefs
-//
-// add/del email to user
-// set metadata for email
-//
-// add/del social login to user
-// set metadata for social
-type UserDB interface {
-	// Setup will create or mirgate tables
-	Setup() error
+type UserDB = data.UserDB
+type User = data.User
+type UserSocial = data.UserSocial
+type EmailRecord = data.EmailRecord
 
-	PutNewUser(nu *User) (*User, error)
-
-	GetUser(guid int64) (*User, error)
-	GetLocalUser(username string) (*User, error)
-	GetSocialUser(service, id string) (*User, error)
-
-	// copy misc data out of User struct into preferences
-	SetUserPrefs(user *User) error
-	SetUserPassword(user *User) error
-
-	// Set local login for a social-login user
-	SetLogin(user *User, username, password string) error
-
-	AddEmail(user *User, email EmailRecord) error
-	DelEmail(user *User, email string) error
-
-	Feedback(user *User, now int64, text string) error
-}
+var BadUserError = data.BadUserError
 
 func strInStrs(they []string, it string) bool {
 	for _, xs := range they {
@@ -113,9 +84,9 @@ func readUserFromSelect(rows *sql.Rows) (*User, error) {
 				log.Printf("failed to parse social key: %#v", socialkey)
 			} else {
 				u.Social = append(u.Social, UserSocial{
-					service,
-					sid,
-					socialdata,
+					Service: service,
+					Id:      sid,
+					Data:    socialdata,
 				})
 			}
 		}
@@ -132,29 +103,29 @@ func readUserFromSelect(rows *sql.Rows) (*User, error) {
 // sql commands for postgres.
 // postgres is the baseline, others (sqlite3) deviate from it
 const (
-	createGuser = `CREATE TABLE IF NOT EXISTS guser (
+	CreateGuser = `CREATE TABLE IF NOT EXISTS guser (
 id bigserial PRIMARY KEY,
 username varchar(100), -- may be NULL
 password varchar(100), -- may be NULL
 prefs bytea -- cbor encoded UserSqlPrefs{}
 )`
-	createGuserNameIndex = `CREATE UNIQUE INDEX IF NOT EXISTS guser_name ON guser ( username )`
+	CreateGuserNameIndex = `CREATE UNIQUE INDEX IF NOT EXISTS guser_name ON guser ( username )`
 
-	createUserSocial = `CREATE TABLE IF NOT EXISTS user_social (
+	CreateUserSocial = `CREATE TABLE IF NOT EXISTS user_social (
 id bigint, -- foreign key guser.id
 socialkey bytea, -- service\0id
 socialdata bytea, -- cbor, unpack into specific struct per service in app
 PRIMARY KEY (id, socialkey)
 )`
-	createUserSocialKeyIndex = `CREATE UNIQUE INDEX IF NOT EXISTS social_key ON user_social ( socialkey )`
+	CreateUserSocialKeyIndex = `CREATE UNIQUE INDEX IF NOT EXISTS social_key ON user_social ( socialkey )`
 
-	createUserEmail = `CREATE TABLE IF NOT EXISTS user_email (
+	CreateUserEmail = `CREATE TABLE IF NOT EXISTS user_email (
 id bigint, -- foreign key guser.id
 email varchar(100),
 data bytea, -- cbor {'valid':bool, ...}
 PRIMARY KEY (id, email)
 )`
-	creaetUserEmailIndex = `CREATE INDEX IF NOT EXISTS user_email_email ON user_email ( email )`
+	CreateUserEmailIndex = `CREATE INDEX IF NOT EXISTS user_email_email ON user_email ( email )`
 )
 
 func dbTxCmdList(db *sql.DB, cmds []string) error {
@@ -178,12 +149,12 @@ func dbTxCmdList(db *sql.DB, cmds []string) error {
 
 func postgresCreateTables(db *sql.DB) error {
 	cmds := []string{
-		createGuser,
-		createGuserNameIndex,
-		createUserSocial,
-		createUserSocialKeyIndex,
-		createUserEmail,
-		creaetUserEmailIndex,
+		CreateGuser,
+		CreateGuserNameIndex,
+		CreateUserSocial,
+		CreateUserSocialKeyIndex,
+		CreateUserEmail,
+		CreateUserEmailIndex,
 	}
 	return dbTxCmdList(db, cmds)
 }
@@ -413,6 +384,9 @@ func dbIsSqlite(db *sql.DB) bool {
 	return t.Kind() == reflect.Ptr && t.Elem().Name() == "SQLiteDriver"
 }
 
+// NewSqlUserDB wraps a db connection for doing login stuff
+//
+// PostgreSQL and Sqlite3 are supported.
 func NewSqlUserDB(db *sql.DB) UserDB {
 	if dbIsSqlite(db) {
 		return &sqlite3UserDB{db}
@@ -584,6 +558,21 @@ func (sdb *sqlite3UserDB) Feedback(user *User, now int64, text string) error {
 	return Feedback(sdb.db, user, now, text)
 }
 
+// different than postgresql CreateGuser, serial id int is builtin ROWID
+const CreateGuserSqlite3 = `CREATE TABLE IF NOT EXISTS guser (
+username varchar(100), -- may be NULL
+password BLOB, -- may be NULL
+prefs BLOB -- cbor encoded UserSqlPrefs{}
+)`
+
 func (sdb *sqlite3UserDB) Setup() error {
-	return sqlite3CreateTables(sdb.db)
+	cmds := []string{
+		CreateGuserSqlite3,
+		CreateGuserNameIndex,
+		CreateUserSocial,
+		CreateUserSocialKeyIndex,
+		CreateUserEmail,
+		CreateUserEmailIndex,
+	}
+	return dbTxCmdList(sdb.db, cmds)
 }

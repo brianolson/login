@@ -8,6 +8,7 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 
+	ldata "github.com/brianolson/login/login/data"
 	ls "github.com/brianolson/login/login/sql"
 	tu "github.com/brianolson/login/login/sql/testutil"
 )
@@ -46,8 +47,8 @@ func TestBasicUser(t *testing.T) {
 		},
 
 		Email: []ls.EmailRecord{
-			ls.EmailRecord{Email: "z@z.z", EmailMetadata: ls.EmailMetadata{Validated: true, Added: 31337}},
-			ls.EmailRecord{Email: "y@y.y", EmailMetadata: ls.EmailMetadata{Validated: false, Added: 12345}},
+			ls.EmailRecord{Email: "z@z.z", EmailMetadata: ldata.EmailMetadata{Validated: true, Added: 31337}},
+			ls.EmailRecord{Email: "y@y.y", EmailMetadata: ldata.EmailMetadata{Validated: false, Added: 12345}},
 		},
 	}
 	err := newUser.SetPassword("derp")

@@ -1,4 +1,4 @@
-package sql
+package data
 
 import (
 	"errors"
@@ -38,10 +38,14 @@ type UserSocial struct {
 	Data    interface{}
 }
 
+// EmailMetadata is info about a User email address
 type EmailMetadata struct {
 	Validated bool
 	Added     int64 // unix timestamp
 	Data      map[string]interface{}
+
+	// Priority is order of importance, 1=most priority, 1_000_000_000=least priority
+	Priority int
 }
 
 type EmailRecord struct {
